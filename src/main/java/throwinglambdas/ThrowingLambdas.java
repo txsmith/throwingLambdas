@@ -1,5 +1,4 @@
-package nl.tudelft.bigdata.functional;
-
+package throwinglambdas;
 
 import com.google.common.collect.Lists;
 
