@@ -11,3 +11,7 @@ dependencies {
 
     compile 'com.google.guava:guava:14.0.1' // guava 14.0.1
 }
+
+task wrapper(type: Wrapper) {
+    gradleVersion = '2.0'
+}
