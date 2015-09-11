@@ -1,6 +1,9 @@
 package throwinglambdas;
 
 import com.google.common.collect.Lists;
+import throwinglambdas.functional.Statement;
+import throwinglambdas.functional.ThrowingConsumer;
+import throwinglambdas.functional.ThrowingFunction;
 
 import java.io.IOException;
 import java.util.Collection;
@@ -15,7 +18,7 @@ import java.util.stream.Collectors;
 public class ThrowingLambdas {
 
     public static void main(String ... args) {
-        process((Garbage garbage, Double num) -> {
+        using((Garbage garbage, Double num) -> {
             garbage.add(5, System.out::println);
 
             if (0.5 > num) {
@@ -23,18 +26,18 @@ public class ThrowingLambdas {
             }
 
             garbage.add(6, System.out::println);
-        }).using(0.0).cleanup();
+        }).with(0.0);
     }
 
-    public static <T, R> Set<R> safeMapping(Set<T> list, Function<T, Optional<R>> mapper) {
-        return safeMapping(list, mapper, Collectors.toSet());
+    public static <T, R> Set<R> safeMap(Set<T> list, Function<T, Optional<R>> mapper) {
+        return safeMap(list, mapper, Collectors.toSet());
     }
 
-    public static <T, R> List<R> safeMapping(List<T> list, Function<T, Optional<R>> mapper) {
-        return safeMapping(list, mapper, Collectors.toList());
+    public static <T, R> List<R> safeMap(List<T> list, Function<T, Optional<R>> mapper) {
+        return safeMap(list, mapper, Collectors.toList());
     }
 
-    public static <T, R, C> C safeMapping(Collection<T> list, Function<T, Optional<R>> mapper, Collector<R, ?, C> collector) {
+    public static <T, R, C> C safeMap(Collection<T> list, Function<T, Optional<R>> mapper, Collector<R, ?, C> collector) {
         return list.stream()
                 .map(mapper)
                 .filter(Optional::isPresent)
@@ -42,7 +45,7 @@ public class ThrowingLambdas {
                 .collect(collector);
     }
 
-    public static <T, R> Function<T, Optional<R>> catchMe(ThrowingFunction<T, R, ?> throwingFunction) {
+    public static <T, R> Function<T, Optional<R>> toOptional(ThrowingFunction<T, R, ?> throwingFunction) {
         return t -> {
             try {
                 return Optional.of(throwingFunction.apply(t));
@@ -52,11 +55,11 @@ public class ThrowingLambdas {
         };
     }
 
-    public static <T, E extends Throwable> Consumer<T> silence(ThrowingConsumer<T, E> consumer) {
-        return silence(new ConsumerFunctionAdapter<>(consumer))::apply;
+    public static <T, E extends Throwable> Consumer<T> hideExceptions(ThrowingConsumer<T, E> consumer) {
+        return hideExceptions(new ConsumerToFunctionWrapper<>(consumer))::apply;
     }
 
-    public static <T, R, E extends Throwable> Function<T, R> silence(ThrowingFunction<T, R, E> consumer) {
+    public static <T, R, E extends Throwable> Function<T, R> hideExceptions(ThrowingFunction<T, R, E> consumer) {
         return t -> {
             try {
                 return consumer.apply(t);
@@ -66,10 +69,10 @@ public class ThrowingLambdas {
         };
     }
 
-    public static class ConsumerFunctionAdapter<T, R, E extends Throwable> implements ThrowingFunction<T, R, E> {
+    public static class ConsumerToFunctionWrapper<T, R, E extends Throwable> implements ThrowingFunction<T, R, E> {
         private final ThrowingConsumer<T, E> wrappedFunction;
 
-        public ConsumerFunctionAdapter(ThrowingConsumer<T, E> functionToWrap) {
+        public ConsumerToFunctionWrapper(ThrowingConsumer<T, E> functionToWrap) {
             this.wrappedFunction = functionToWrap;
         }
 
@@ -80,13 +83,12 @@ public class ThrowingLambdas {
         }
     }
 
-    public static <T> TryFinally<T> process(GarbageThrowingConsumer<T, ?> consumer) {
+    public static <T> TryFinally<T> using(GarbageThrowingConsumer<T, ?> consumer) {
         return new TryFinally<>(consumer);
     }
 
     public static class TryFinally<T> {
         private GarbageThrowingConsumer<T,?> throwingConsumer;
-        private T t;
         private Garbage garbage;
 
         public TryFinally(GarbageThrowingConsumer<T, ?> throwingConsumer) {
@@ -94,12 +96,7 @@ public class ThrowingLambdas {
             this.garbage = new Garbage();
         }
 
-        public TryFinally<T> using(T t) {
-            this.t = t;
-            return this;
-        }
-
-        public void cleanup() {
+        public void with(T t) {
             try {
                 this.throwingConsumer.accept(garbage, t);
             } catch (Throwable ignored) {
@@ -128,22 +125,5 @@ public class ThrowingLambdas {
         public void cleanup() {
             garbages.forEach(Statement::apply);
         }
-    }
-
-    @FunctionalInterface
-    public interface ThrowingConsumer<T, E extends Throwable> {
-        void accept(T t) throws E;
-    }
-    @FunctionalInterface
-    public interface ThrowingFunction<T, R, E extends Throwable> {
-        R apply(T t) throws E;
-    }
-    @FunctionalInterface
-    public interface ThrowingStatement<E extends Throwable> {
-        void apply() throws E;
-    }
-    @FunctionalInterface
-    public interface Statement {
-        void apply();
     }
 }
