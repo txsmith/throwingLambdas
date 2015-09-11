@@ -1,11 +1,11 @@
 package throwinglambdas;
 
 import com.google.common.collect.Lists;
+import throwinglambdas.functional.Either;
 import throwinglambdas.functional.Statement;
 import throwinglambdas.functional.ThrowingConsumer;
 import throwinglambdas.functional.ThrowingFunction;
 
-import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -17,27 +17,28 @@ import java.util.stream.Collectors;
 
 public class ThrowingLambdas {
 
-    public static void main(String ... args) {
-        using((Garbage garbage, Double num) -> {
-            garbage.add(5, System.out::println);
-
-            if (0.5 > num) {
-                throw new IOException("");
-            }
-
-            garbage.add(6, System.out::println);
-        }).with(0.0);
+    /**
+     * Compute a function on all elements in a {@link Set}
+     * and filter the results where that function returns {@link Optional}{@code .empty()}.
+     * The result of this function may therefore be smaller than it's input.
+     * <p>
+     * Use with {@code toOptional} for functions that might throw exceptions.
+     *
+     * @param set    The set to map.
+     * @param mapper The partial function to use.
+     * @param <T>    Type of elements in the input set
+     * @param <R>    Type of elements in th output set.
+     * @return Resulting set of the mapping.
+     */
+    public static <T, R> Set<R> safeMap(Set<? extends T> set, Function<? super T, Optional<R>> mapper) {
+        return safeMap(set, mapper, Collectors.toSet());
     }
 
-    public static <T, R> Set<R> safeMap(Set<T> list, Function<T, Optional<R>> mapper) {
-        return safeMap(list, mapper, Collectors.toSet());
-    }
-
-    public static <T, R> List<R> safeMap(List<T> list, Function<T, Optional<R>> mapper) {
+    public static <T, R> List<R> safeMap(List<? extends T> list, Function<? super T, Optional<R>> mapper) {
         return safeMap(list, mapper, Collectors.toList());
     }
 
-    public static <T, R, C> C safeMap(Collection<T> list, Function<T, Optional<R>> mapper, Collector<R, ?, C> collector) {
+    public static <T, R, C> C safeMap(Collection<? extends T> list, Function<? super T, Optional<R>> mapper, Collector<R, ?, C> collector) {
         return list.stream()
                 .map(mapper)
                 .filter(Optional::isPresent)
@@ -45,6 +46,16 @@ public class ThrowingLambdas {
                 .collect(collector);
     }
 
+    /**
+     * Turn a partial function into a total function.
+     * The function is made total by returning {@link Optional}{@code .empty()}
+     * when an exception is thrown.
+     *
+     * @param throwingFunction The partial function to transform.
+     * @param <T>              Type of input arguments to that function
+     * @param <R>              Possible output type of the function.
+     * @return
+     */
     public static <T, R> Function<T, Optional<R>> toOptional(ThrowingFunction<T, R, ?> throwingFunction) {
         return t -> {
             try {
@@ -55,11 +66,21 @@ public class ThrowingLambdas {
         };
     }
 
-    public static <T, E extends Throwable> Consumer<T> hideExceptions(ThrowingConsumer<T, E> consumer) {
-        return hideExceptions(new ConsumerToFunctionWrapper<>(consumer))::apply;
+    public static <T, R, E extends Throwable> Function<T, Either<? extends Throwable, R>> toEither(ThrowingFunction<T, R, E> throwingFunction) {
+        return t -> {
+            try {
+                return Either.right(throwingFunction.apply(t));
+            } catch (Throwable exception) {
+                return Either.left(exception);
+            }
+        };
     }
 
-    public static <T, R, E extends Throwable> Function<T, R> hideExceptions(ThrowingFunction<T, R, E> consumer) {
+    public static <T, E extends Throwable> Consumer<T> silenceExceptions(ThrowingConsumer<T, E> consumer) {
+        return silenceExceptions(toThrowingFunction(consumer))::apply;
+    }
+
+    public static <T, R, E extends Throwable> Function<T, R> silenceExceptions(ThrowingFunction<T, R, E> consumer) {
         return t -> {
             try {
                 return consumer.apply(t);
@@ -69,18 +90,8 @@ public class ThrowingLambdas {
         };
     }
 
-    public static class ConsumerToFunctionWrapper<T, R, E extends Throwable> implements ThrowingFunction<T, R, E> {
-        private final ThrowingConsumer<T, E> wrappedFunction;
-
-        public ConsumerToFunctionWrapper(ThrowingConsumer<T, E> functionToWrap) {
-            this.wrappedFunction = functionToWrap;
-        }
-
-        @Override
-        public R apply(T t) throws E {
-            wrappedFunction.accept(t);
-            return null;
-        }
+    public static <T, E extends Throwable> ThrowingFunction<T, Void, E> toThrowingFunction(ThrowingConsumer<T, E> c) {
+        return (T t) -> { c.accept(t); return null; };
     }
 
     public static <T> TryFinally<T> using(GarbageThrowingConsumer<T, ?> consumer) {
